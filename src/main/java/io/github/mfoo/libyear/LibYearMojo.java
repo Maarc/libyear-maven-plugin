@@ -789,19 +789,17 @@ public class LibYearMojo extends AbstractMojo {
 
         try {
             Optional<String> response = fetchReleaseDate(groupId, artifactId, version);
-
-            if (response.isEmpty()) {
-                return Optional.empty();
-            }
-
-            JSONObject json = new JSONObject(response.get());
-            JSONObject queryResponse = json.getJSONObject("response");
             long epochTime = 0L;
-            if (queryResponse.getLong("numFound") != 0) {
-                epochTime = queryResponse.getJSONArray("docs").getJSONObject(0).getLong("timestamp");
-                getLog().debug(String.format("Found release time %d for %s:%s", epochTime, ga, version));
-
-            } else {
+            if (!response.isEmpty()) {
+                JSONObject json = new JSONObject(response.get());
+                JSONObject queryResponse = json.getJSONObject("response");
+                if (queryResponse.getLong("numFound") != 0) {
+                    epochTime =
+                            queryResponse.getJSONArray("docs").getJSONObject(0).getLong("timestamp");
+                    getLog().debug(String.format("Found release time %d for %s:%s", epochTime, ga, version));
+                }
+            }
+            if (epochTime == 0L) {
                 getLog().debug(String.format("Could not find artifact for %s %s", ga, version));
                 try {
                     // Fallback: Use Maven Central Last-Modified header
