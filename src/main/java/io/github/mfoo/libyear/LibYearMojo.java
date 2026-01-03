@@ -802,11 +802,14 @@ public class LibYearMojo extends AbstractMojo {
             if (epochTime == 0L) {
                 getLog().debug(String.format("Could not find artifact for %s %s", ga, version));
                 try {
-                    // Fallback: Use Maven Central Last-Modified header
+                    // Fallback: Use Last-Modified header from POM file in multiple repositories
+                    // This provides version-specific timestamps unlike maven-metadata.xml
                     epochTime = MavenArtifactInfo.getLastModifiedTimestamp(groupId, artifactId, version);
+                    getLog().debug(String.format(
+                            "Found release time from Last-Modified %d for %s:%s", epochTime, ga, version));
                 } catch (IOException e) {
                     getLog().debug(String.format(
-                            "Could not fetch Last-Modified header for %s %s: %s", ga, version, e.getMessage()));
+                            "Could not fetch timestamp for %s %s: %s", ga, version, e.getMessage()));
                     return Optional.empty();
                 }
             }
