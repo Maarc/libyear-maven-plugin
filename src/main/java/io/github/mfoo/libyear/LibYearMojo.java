@@ -670,8 +670,8 @@ public class LibYearMojo extends AbstractMojo {
                 continue;
             }
 
-            String ga = String.format("%s:%s", artifact.getGroupId(), artifact.getArtifactId());
-            dependencyVersionUpdates.put(ga, Pair.of(currentVersionReleaseDate.get(), latestVersionReleaseDate.get()));
+            String gav = String.format("%s:%s:%s", artifact.getGroupId(), artifact.getArtifactId(), current);
+            dependencyVersionUpdates.put(gav, Pair.of(currentVersionReleaseDate.get(), latestVersionReleaseDate.get()));
         }
 
         if (dependencyVersionUpdates.isEmpty()) {
@@ -722,19 +722,25 @@ public class LibYearMojo extends AbstractMojo {
         validOutdatedDependencies.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .forEach((dep) -> {
+                    String[] gavParts = dep.getKey().split(":");
+                    String groupId = gavParts[0];
+                    String artifactId = gavParts[1];
+                    String version = gavParts[2];
+                    String displayKey = groupId + ":" + artifactId + ":" + version;
+
                     LocalDate currentReleaseDate = dep.getValue().getLeft();
                     LocalDate latestReleaseDate = dep.getValue().getRight();
 
                     long libWeeksOutdated = ChronoUnit.WEEKS.between(currentReleaseDate, latestReleaseDate);
                     float libYearsOutdated = libWeeksOutdated / 52f;
 
-                    logDependencyAge(dep, libYearsOutdated);
+                    logDependencyAge(displayKey, libYearsOutdated);
                     yearsOutdated[0] += libYearsOutdated;
                     libWeeksOutDated.getAndAdd(libWeeksOutdated);
 
-                    if (!dependencyAges.containsKey(dep.getKey())
-                            || dependencyAges.get(dep.getKey()) < libYearsOutdated) {
-                        dependencyAges.put(dep.getKey(), libYearsOutdated);
+                    String gaKey = groupId + ":" + artifactId;
+                    if (!dependencyAges.containsKey(gaKey) || dependencyAges.get(gaKey) < libYearsOutdated) {
+                        dependencyAges.put(gaKey, libYearsOutdated);
                     }
                 });
 
@@ -749,17 +755,17 @@ public class LibYearMojo extends AbstractMojo {
      * Prints output in the form
      * <p />
      * <code>
-     *     mygroup:myartifact ................ 1.0 years
-     *     mygroup:myartifactwithlonglonglongname
-     *     ................................... 2.0 years
+     *     mygroup:myartifact:1.0.0 ................ 1.0 years
+     *     mygroup:myartifactwithlonglonglongname:1.0.0
+     *     ........................................... 2.0 years
      * </code>
      *
-     * @param dep   The dependency
+     * @param displayKey The display key (groupId:artifactId (version))
      * @param libYearsOutdated  How many libyears behind it is
      */
-    private void logDependencyAge(Map.Entry<String, Pair<LocalDate, LocalDate>> dep, float libYearsOutdated) {
+    private void logDependencyAge(String displayKey, float libYearsOutdated) {
         String right = String.format(Locale.US, " %.2f libyears", libYearsOutdated);
-        String left = "  " + dep.getKey() + " ";
+        String left = "  " + displayKey + " ";
 
         if ((left.length() + right.length()) > INFO_PAD_SIZE) {
             getLog().info(left);

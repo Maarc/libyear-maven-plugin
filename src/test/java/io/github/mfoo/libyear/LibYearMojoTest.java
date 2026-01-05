@@ -232,13 +232,12 @@ public class LibYearMojoTest {
 
         List<String> logs = ((InMemoryTestLogger) mojo.getLog()).infoLogs;
         Optional<String> logLine = logs.stream()
-                .filter((l) -> l.contains("default-group:default-dependency-with-very-very-long-name"))
+                .filter((l) -> l.contains("default-group:default-dependency-with-very-very-long-name:1.0.0"))
                 .findFirst();
         assertTrue(logLine.isPresent());
 
         int dependencyFirstLineIndex = logs.indexOf(logLine.get());
 
-        assertFalse(logs.get(dependencyFirstLineIndex).contains("."));
         assertTrue(logs.get(dependencyFirstLineIndex + 1).startsWith("  ...")
                 && logs.get(dependencyFirstLineIndex + 1).endsWith(("1.00 libyears")));
         assertTrue(((InMemoryTestLogger) mojo.getLog()).errorLogs.isEmpty());
@@ -1376,6 +1375,65 @@ public class LibYearMojoTest {
         String content = Files.readString(reportFile);
         assertFalse(content.contains("default-group:default-dependency") && content.contains("1.00"));
         assertTrue(content.contains("default-group:default2-dependency") && content.contains("3.00"));
+    }
+
+    @Test
+    public void duplicateDependenciesWithSameGroupIdAndArtifactIdButDifferentVersions() throws Exception {
+        LibYearMojo mojo =
+                new LibYearMojo(
+                        mockAetherRepositorySystem(new HashMap<>() {
+                            {
+                                put("default-dependency", new String[] {"1.0.0", "1.1.0", "2.0.0"});
+                            }
+                        }),
+                        new ArtifactFactory(mockArtifactHandlerManager())) {
+                    {
+                        Dependency dep1 = DependencyBuilder.newBuilder()
+                                .withGroupId("default-group")
+                                .withArtifactId("default-dependency")
+                                .withVersion("1.0.0")
+                                .build();
+
+                        Dependency dep2 = DependencyBuilder.newBuilder()
+                                .withGroupId("default-group")
+                                .withArtifactId("default-dependency")
+                                .withVersion("1.1.0")
+                                .build();
+
+                        MavenProject project = new MavenProjectBuilder()
+                                .withDependencies(Arrays.asList(dep1, dep2))
+                                .build();
+
+                        setProject(project);
+                        allowProcessingAllDependencies(this);
+                        setPluginContext(new HashMap<>());
+
+                        setSession(mockMavenSession(project));
+                        setSearchUri("http://localhost:8090");
+
+                        setLog(new InMemoryTestLogger());
+                    }
+                };
+
+        LocalDateTime now = LocalDateTime.now();
+
+        stubResponseFor("default-group", "default-dependency", "1.0.0", now.minusYears(2));
+        stubResponseFor("default-group", "default-dependency", "1.1.0", now.minusYears(1));
+        stubResponseFor("default-group", "default-dependency", "2.0.0", now);
+
+        mojo.execute();
+
+        InMemoryTestLogger logger = (InMemoryTestLogger) mojo.getLog();
+        assertEquals(
+                2,
+                logger.infoLogs.stream()
+                        .filter(l -> l.contains("default-group:default-dependency"))
+                        .count());
+        assertTrue(logger.infoLogs.stream()
+                .anyMatch(l -> l.contains("default-group:default-dependency:1.0.0") && l.contains("2.00 libyears")));
+        assertTrue(logger.infoLogs.stream()
+                .anyMatch(l -> l.contains("default-group:default-dependency:1.1.0") && l.contains("1.00 libyears")));
+        assertTrue(logger.errorLogs.isEmpty());
     }
 
     private void allowProcessingAllDependencies(LibYearMojo mojo) throws IllegalAccessException {
