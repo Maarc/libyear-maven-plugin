@@ -24,7 +24,6 @@ import static org.codehaus.mojo.versions.utils.MavenProjectUtils.extractPluginDe
 
 import com.google.common.collect.Maps;
 import io.github.mfoo.libyear.utils.MavenArtifactInfo;
-import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -594,15 +593,24 @@ public class LibYearMojo extends AbstractMojo {
             }
         });
 
-        File targetDirectory = new File(project.getModel().getBuild().getDirectory());
-        if (targetDirectory.exists() && targetDirectory.isDirectory()) {
-            Path path = Paths.get(targetDirectory.getAbsolutePath(), reportFile);
-            try {
-                Files.write(
-                        path, logsToReport.toString().getBytes(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            } catch (IOException e) {
-                getLog().error("Failed to write report file: " + reportFile, e);
+        Path path;
+        if (Paths.get(reportFile).isAbsolute()) {
+            path = Paths.get(reportFile);
+        } else {
+            // Resolve relative paths relative to project base directory
+            Path projectBase = Paths.get(project.getBasedir().getAbsolutePath());
+            path = projectBase.resolve(reportFile);
+        }
+
+        try {
+            // Ensure parent directory exists
+            Path parentDir = path.getParent();
+            if (parentDir != null) {
+                Files.createDirectories(parentDir);
             }
+            Files.write(path, logsToReport.toString().getBytes(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException e) {
+            getLog().error("Failed to write report file: " + reportFile, e);
         }
     }
 

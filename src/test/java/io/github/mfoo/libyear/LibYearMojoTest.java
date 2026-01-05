@@ -1341,7 +1341,7 @@ public class LibYearMojoTest {
                         setProject(project);
                         allowProcessingAllDependencies(this);
 
-                        setVariableValueToObject(this, "reportFile", "libyear_testreport.csv");
+                        setVariableValueToObject(this, "reportFile", reportFile.toString());
                         setVariableValueToObject(this, "minLibYearsForReport", 2);
 
                         setPluginContext(new HashMap<>());
@@ -1434,6 +1434,76 @@ public class LibYearMojoTest {
         assertTrue(logger.infoLogs.stream()
                 .anyMatch(l -> l.contains("default-group:default-dependency:1.1.0") && l.contains("1.00 libyears")));
         assertTrue(logger.errorLogs.isEmpty());
+    }
+
+    @Test
+    public void androidxCoreKtxDuplicateVersions() throws Exception {
+        LibYearMojo mojo =
+                new LibYearMojo(
+                        mockAetherRepositorySystem(new HashMap<>() {
+                            {
+                                put("core-ktx", new String[] {"1.8.0", "1.9.0", "2.0.0"});
+                            }
+                        }),
+                        new ArtifactFactory(mockArtifactHandlerManager())) {
+                    {
+                        Dependency dep1 = DependencyBuilder.newBuilder()
+                                .withGroupId("androidx.core")
+                                .withArtifactId("core-ktx")
+                                .withVersion("1.8.0")
+                                .build();
+
+                        Dependency dep2 = DependencyBuilder.newBuilder()
+                                .withGroupId("androidx.core")
+                                .withArtifactId("core-ktx")
+                                .withVersion("1.9.0")
+                                .build();
+
+                        MavenProject project = new MavenProjectBuilder()
+                                .withDependencies(Arrays.asList(dep1, dep2))
+                                .build();
+
+                        setProject(project);
+                        allowProcessingAllDependencies(this);
+                        setPluginContext(new HashMap<>());
+
+                        setSession(mockMavenSession(project));
+                        setSearchUri("http://localhost:8090");
+
+                        setLog(new InMemoryTestLogger());
+                    }
+                };
+
+        LocalDateTime now = LocalDateTime.now();
+
+        stubResponseFor("androidx.core", "core-ktx", "1.8.0", now.minusYears(2));
+        stubResponseFor("androidx.core", "core-ktx", "1.9.0", now.minusYears(1));
+        stubResponseFor("androidx.core", "core-ktx", "2.0.0", now);
+
+        mojo.execute();
+
+        InMemoryTestLogger logger = (InMemoryTestLogger) mojo.getLog();
+
+        // Verify both versions are analyzed
+        assertEquals(
+                2,
+                logger.infoLogs.stream()
+                        .filter(l -> l.contains("androidx.core:core-ktx"))
+                        .count(),
+                "Both versions should be analyzed");
+
+        // Verify specific version outputs
+        assertTrue(
+                logger.infoLogs.stream()
+                        .anyMatch(l -> l.contains("androidx.core:core-ktx:1.8.0") && l.contains("2.00 libyears")),
+                "Should show androidx.core:core-ktx:1.8.0 with 2.00 libyears");
+
+        assertTrue(
+                logger.infoLogs.stream()
+                        .anyMatch(l -> l.contains("androidx.core:core-ktx:1.9.0") && l.contains("1.00 libyears")),
+                "Should show androidx.core:core-ktx:1.9.0 with 1.00 libyears");
+
+        assertTrue(logger.errorLogs.isEmpty(), "Should have no errors");
     }
 
     private void allowProcessingAllDependencies(LibYearMojo mojo) throws IllegalAccessException {
