@@ -472,9 +472,7 @@ public class LibYearMojo extends AbstractMojo {
                 generateReport(dependencyManagement, "Dependency Management");
 
                 // Log anything that's left
-                thisProjectLibYearsOutdated += processDependencyUpdates(
-                        getHelper().lookupDependenciesUpdates(dependencyManagement.stream(), false, false),
-                        "Dependency Management");
+                thisProjectLibYearsOutdated += processDependencyUpdates(dependencyManagement, "Dependency Management");
             }
 
             if (processDependencies) {
@@ -497,8 +495,7 @@ public class LibYearMojo extends AbstractMojo {
                 generateReport(dependencies, "Dependency");
 
                 // Log anything that's left
-                thisProjectLibYearsOutdated += processDependencyUpdates(
-                        getHelper().lookupDependenciesUpdates(dependencies.stream(), false, false), "Dependencies");
+                thisProjectLibYearsOutdated += processDependencyUpdates(dependencies, "Dependencies");
             }
 
             if (processPluginDependenciesInPluginManagement) {
@@ -518,10 +515,7 @@ public class LibYearMojo extends AbstractMojo {
 
                 // Log anything that's left
                 thisProjectLibYearsOutdated += processDependencyUpdates(
-                        getHelper()
-                                .lookupDependenciesUpdates(
-                                        filteredPluginDependenciesFromDepManagement.stream(), false, false),
-                        "pluginManagement of plugins");
+                        filteredPluginDependenciesFromDepManagement, "pluginManagement of plugins");
             }
 
             if (processPluginDependencies) {
@@ -539,9 +533,8 @@ public class LibYearMojo extends AbstractMojo {
                 generateReport(filteredPluginDependencies, "Plugin Dependency");
 
                 // Log anything that's left
-                thisProjectLibYearsOutdated += processDependencyUpdates(
-                        getHelper().lookupDependenciesUpdates(filteredPluginDependencies.stream(), false, false),
-                        "Plugin Dependencies");
+                thisProjectLibYearsOutdated +=
+                        processDependencyUpdates(filteredPluginDependencies, "Plugin Dependencies");
             }
 
             if (thisProjectLibYearsOutdated != 0) {
@@ -635,43 +628,45 @@ public class LibYearMojo extends AbstractMojo {
     }
 
     /**
-     * Iterates over the list of updates for the current pom section, logging how far behind the latest version they are.
+     * Iterates over the list of dependencies for the current pom section, logging how far behind the latest version they are.
      *
-     * @param updates   All available updates for this section
+     * @param dependencies All dependencies for this section
      * @param section   The name of the section (e.g. "Plugin Management")
      */
-    private float processDependencyUpdates(Map<Dependency, ArtifactVersions> updates, String section) {
+    private float processDependencyUpdates(Set<Dependency> dependencies, String section) {
         Map<String, Pair<LocalDate, LocalDate>> dependencyVersionUpdates = Maps.newHashMap();
 
-        for (ArtifactVersions versions : updates.values()) {
-            if (versions.getCurrentVersion() == null) {
-                continue;
+        for (Dependency dependency : dependencies) {
+            try {
+                Artifact artifact = artifactFactory.createArtifact(dependency);
+                ArtifactVersions versions = getHelper().lookupArtifactVersions(artifact, false);
+                if (versions.getCurrentVersion() == null) {
+                    continue;
+                }
+
+                final String current = versions.getCurrentVersion().toString();
+                ArtifactVersion latest = versions.getNewestUpdateWithinSegment(Optional.empty(), false);
+
+                if (latest == null || current.equals(latest.toString())) {
+                    continue;
+                }
+
+                Optional<LocalDate> latestVersionReleaseDate =
+                        getReleaseDate(artifact.getGroupId(), artifact.getArtifactId(), latest.toString());
+                Optional<LocalDate> currentVersionReleaseDate =
+                        getReleaseDate(artifact.getGroupId(), artifact.getArtifactId(), current);
+
+                if (latestVersionReleaseDate.isEmpty() || currentVersionReleaseDate.isEmpty()) {
+                    // We couldn't find version details, skip
+                    continue;
+                }
+
+                String gav = String.format("%s:%s:%s", artifact.getGroupId(), artifact.getArtifactId(), current);
+                dependencyVersionUpdates.put(
+                        gav, Pair.of(currentVersionReleaseDate.get(), latestVersionReleaseDate.get()));
+            } catch (Exception e) {
+                getLog().debug("Failed to get versions for " + dependency, e);
             }
-
-            final String current = versions.getCurrentVersion().toString();
-            ArtifactVersion latest = versions.getNewestUpdateWithinSegment(Optional.empty(), false);
-
-            if (latest == null) {
-                continue;
-            }
-
-            if (current.equals(latest.toString())) {
-                continue;
-            }
-
-            Artifact /* current */ artifact = versions.getArtifact();
-            Optional<LocalDate> latestVersionReleaseDate =
-                    getReleaseDate(artifact.getGroupId(), artifact.getArtifactId(), latest.toString());
-            Optional<LocalDate> currentVersionReleaseDate =
-                    getReleaseDate(artifact.getGroupId(), artifact.getArtifactId(), current);
-
-            if (latestVersionReleaseDate.isEmpty() || currentVersionReleaseDate.isEmpty()) {
-                // We couldn't find version details, skip
-                continue;
-            }
-
-            String gav = String.format("%s:%s:%s", artifact.getGroupId(), artifact.getArtifactId(), current);
-            dependencyVersionUpdates.put(gav, Pair.of(currentVersionReleaseDate.get(), latestVersionReleaseDate.get()));
         }
 
         if (dependencyVersionUpdates.isEmpty()) {
@@ -760,7 +755,7 @@ public class LibYearMojo extends AbstractMojo {
      *     ........................................... 2.0 years
      * </code>
      *
-     * @param displayKey The display key (groupId:artifactId (version))
+     * @param displayKey The display key (groupId:artifactId:version)
      * @param libYearsOutdated  How many libyears behind it is
      */
     private void logDependencyAge(String displayKey, float libYearsOutdated) {
