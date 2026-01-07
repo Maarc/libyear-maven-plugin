@@ -563,20 +563,47 @@ public class LibYearMojo extends AbstractMojo {
             try {
                 Artifact artifact = artifactFactory.createArtifact(dependency);
 
-                Optional<LocalDate> currentReleaseDate =
-                        getReleaseDate(artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion());
-
                 String depName = dependency.getGroupId() + ":" + dependency.getArtifactId();
                 String libYearsStr = "unknown";
-                if (!currentReleaseDate.isEmpty()) {
-                    long libWeeksOutdated = ChronoUnit.WEEKS.between(currentReleaseDate.get(), LocalDate.now());
-                    float libYearsOutdated = libWeeksOutdated / 52f;
 
-                    if (libYearsOutdated > 0
-                            && (minLibYearsForReport <= 0 || libYearsOutdated > minLibYearsForReport)) {
-                        libYearsStr = String.format(Locale.US, "%.2f", libYearsOutdated);
+                try {
+                    // Get version information to find the latest version
+                    ArtifactVersions versions = getHelper().lookupArtifactVersions(artifact, false);
+                    if (versions.getCurrentVersion() != null) {
+                        final String current = versions.getCurrentVersion().toString();
+                        ArtifactVersion latest = versions.getNewestUpdateWithinSegment(Optional.empty(), false);
+
+                        Optional<LocalDate> currentReleaseDate =
+                                getReleaseDate(artifact.getGroupId(), artifact.getArtifactId(), current);
+
+                        if (!currentReleaseDate.isEmpty()) {
+                            float libYearsOutdated = 0.0f;
+
+                            if (latest != null && !current.equals(latest.toString())) {
+                                // Dependency is outdated - calculate difference from current to latest
+                                Optional<LocalDate> latestReleaseDate = getReleaseDate(
+                                        artifact.getGroupId(), artifact.getArtifactId(), latest.toString());
+
+                                if (!latestReleaseDate.isEmpty()) {
+                                    long libWeeksOutdated =
+                                            ChronoUnit.WEEKS.between(currentReleaseDate.get(), latestReleaseDate.get());
+                                    libYearsOutdated = libWeeksOutdated / 52f;
+                                }
+                            }
+                            // For up-to-date dependencies, libYearsOutdated remains 0.0
+
+                            // Include in report if it meets the criteria
+                            if (libYearsOutdated >= 0
+                                    && (minLibYearsForReport <= 0 || libYearsOutdated >= minLibYearsForReport)) {
+                                libYearsStr = String.format(Locale.US, "%.2f", libYearsOutdated);
+                            }
+                        }
                     }
+                } catch (Exception e) {
+                    // If we can't determine versions, keep as "unknown"
+                    getLog().debug("Could not determine version information for " + depName + ": " + e.getMessage());
                 }
+
                 logsToReport
                         .append(depName)
                         .append(",")
